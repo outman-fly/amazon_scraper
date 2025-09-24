@@ -1,12 +1,11 @@
-
 import requests
-from bs4 import BeautifulSoup
+import re
 import json
 import time
 import random
 from urllib.parse import quote
 
-class ComfyUIAmazonScraper:
+class AmazonSearchScraper:
     def __init__(self):
         pass
 
@@ -19,19 +18,16 @@ class ComfyUIAmazonScraper:
             }
         }
 
-    RETURN_TYPES = ("STRING",)
-    RETURN_NAMES = ("json_output",)
+    RETURN_TYPES = ("STRING", "LIST", "LIST", "LIST",)
+    RETURN_NAMES = ("products_json", "image_urls", "detail_urls", "prices",)
 
-    FUNCTION = "scrape_products"
+    FUNCTION = "scrape_amazon"
+    CATEGORY = "Utils/Web"
 
-    CATEGORY = "Amazon"
-
-    def scrape_products(self, search_query, max_results):
-        # 编码搜索关键词
+    def scrape_amazon(self, search_query, max_results):
         encoded_query = quote(search_query)
         search_url = f"https://www.amazon.com/s?k={encoded_query}"
 
-        # 设置请求头，模拟浏览器访问
         headers = {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
             "Accept-Language": "en-US,en;q=0.9",
@@ -43,48 +39,56 @@ class ComfyUIAmazonScraper:
             "Upgrade-Insecure-Requests": "1"
         }
 
-        try:
-            # 添加随机延迟
-            time.sleep(random.uniform(1, 3))
+        products_data = []
+        image_urls = []
+        detail_urls = []
+        prices = []
 
-            # 发送HTTP请求
+        try:
+            time.sleep(random.uniform(1, 3))
             response = requests.get(search_url, headers=headers)
             response.raise_for_status()
 
-            # 解析HTML
-            soup = BeautifulSoup(response.text, "lxml")
+            img_pattern = re.compile(r'<img[^>]*src="([^"]*\._AC_UL320_[^"]*)"[^>]*>')
+            url_pattern = re.compile(r'<a[^>]*class="a-link-normal s-no-outline"[^>]*href="([^"]*)"[^>]*>')
+            price_pattern = re.compile(r'<span[^>]*class="a-offscreen"[^>]*>([^<]*)</span>')
 
-            # 提取商品数据
-            products = []
-            for item in soup.select("div[data-component-type=\'s-search-result\"]")[:max_results]:
-                # 获取图片元素
-                img_element = item.find("img", {"class": "s-image"})
-                if img_element:
-                    # 提取高清大图的URL（替换默认的缩略图URL）
-                    img_url = img_element.get("src", "").replace("._AC_UL320_.", "._AC_UL1500_.")
-                    detail_url = "https://www.amazon.com" + item.find("a", {"class": "a-link-normal s-no-outline"}).get("href", "")
-                    name = item.find("span", {"class": "a-size-medium"}).text.strip() if item.find("span", {"class": "a-size-medium"}) else ""
-                    price = item.find("span", {"class": "a-offscreen"}).text.strip() if item.find("span", {"class": "a-offscreen"}) else ""
+            img_matches = img_pattern.findall(response.text)
+            url_matches = url_pattern.findall(response.text)
+            price_matches = price_pattern.findall(response.text)
 
-                    products.append({
-                        "image_url": img_url,
-                        "detail_url": detail_url,
-                        "name": name,
-                        "price": price
-                    })
+            for i in range(min(max_results, len(img_matches))):
+                hd_img_url = img_matches[i].replace("._AC_UL320_.", "._AC_UL1500_.")
+                detail_url = "https://www.amazon.com" + url_matches[i] if i < len(url_matches) else ""
+                price = price_matches[i] if i < len(price_matches) else "N/A"
+                
+                products_data.append({
+                    "image_url": hd_img_url,
+                    "detail_url": detail_url,
+                    "price": price
+                })
+                image_urls.append(hd_img_url)
+                detail_urls.append(detail_url)
+                prices.append(price)
 
-            return (json.dumps(products, indent=2),)
+            return (json.dumps(products_data, indent=2), image_urls, detail_urls, prices,)
 
         except requests.exceptions.HTTPError as e:
-            return (json.dumps({"error": f"HTTP请求失败: {e}"}, indent=2),)
+            error_msg = f"HTTP请求失败: {e}"
+            return (json.dumps({"error": error_msg}, indent=2), [], [], [],)
+        except requests.exceptions.Timeout as e:
+            error_msg = f"请求超时: {e}"
+            return (json.dumps({"error": error_msg}, indent=2), [], [], [],)
+        except requests.exceptions.RequestException as e:
+            error_msg = f"网络请求异常: {e}"
+            return (json.dumps({"error": error_msg}, indent=2), [], [], [],)
         except Exception as e:
-            return (json.dumps({"error": f"发生错误: {e}"}, indent=2),)
+            error_msg = f"发生错误: {e}"
+            return (json.dumps({"error": error_msg}, indent=2), [], [], [],)
 
-
-
-
+# ComfyUI 节点映射
 NODE_CLASS_MAPPINGS = {
-    "MYJ_FFaceBeautyNode": ComfyUIAmazonScraper
+    "MYJ_FFaceBeautyNode": AmazonSearchScraper
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
