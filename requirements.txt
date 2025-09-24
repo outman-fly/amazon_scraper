@@ -1,7 +1,5 @@
 requests
-BeautifulSoup
 json
 time
 random
 quote
-lxml
